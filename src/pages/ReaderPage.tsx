@@ -4,10 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Play, Pause, SkipBack, SkipForward,
   Bookmark, BookmarkCheck, Heart, PenLine, Volume2,
-  ChevronLeft, ChevronRight, X, Mic, User, Baby
+  ChevronLeft, ChevronRight, X, Mic, User, Baby, Loader2
 } from 'lucide-react';
 import { SAMPLE_BOOKS, VOICE_TYPES, type VoiceType } from '@/data/books';
 import { useFavorites, useBookmarks, useAnnotations, useReadingProgress } from '@/hooks/useBookData';
+import { generateGeminiSpeech, isGeminiTtsAvailable } from '@/services/geminiTts';
+import ThemeToggle from '@/components/ThemeToggle';
 
 export default function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>();
@@ -25,7 +27,9 @@ export default function ReaderPage() {
   const [showAnnotation, setShowAnnotation] = useState(false);
   const [annotationText, setAnnotationText] = useState('');
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
+  const [isLoadingVoice, setIsLoadingVoice] = useState(false);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const geminiAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (book) {
@@ -40,27 +44,65 @@ export default function ReaderPage() {
 
   const stopSpeech = useCallback(() => {
     window.speechSynthesis.cancel();
+    if (geminiAudioRef.current) {
+      geminiAudioRef.current.pause();
+      geminiAudioRef.current = null;
+    }
     setIsPlaying(false);
   }, []);
 
-  const playSpeech = useCallback(() => {
+  const playWithWebSpeech = useCallback(() => {
     if (!book) return;
-    stopSpeech();
-    
     const utterance = new SpeechSynthesisUtterance(book.content[currentPage]);
     utterance.lang = book.language === 'Hebraico' ? 'he-IL' : book.language === 'Aramaico' ? 'ar-SA' : 'pt-BR';
     utterance.rate = 0.9;
-    
-    // Set voice pitch based on type
-    if (voiceType === 'feminina') { utterance.pitch = 1.3; }
+    if (voiceType === 'feminina') utterance.pitch = 1.3;
     else if (voiceType === 'infantil') { utterance.pitch = 1.8; utterance.rate = 1.05; }
-    else { utterance.pitch = 0.8; }
-
+    else utterance.pitch = 0.8;
     utterance.onend = () => setIsPlaying(false);
     speechRef.current = utterance;
     window.speechSynthesis.speak(utterance);
     setIsPlaying(true);
-  }, [book, currentPage, voiceType, stopSpeech]);
+  }, [book, currentPage, voiceType]);
+
+  const playSpeech = useCallback(async () => {
+    if (!book) return;
+    stopSpeech();
+
+    if (isGeminiTtsAvailable()) {
+      setIsLoadingVoice(true);
+      try {
+        const result = await generateGeminiSpeech(
+          book.content[currentPage],
+          voiceType,
+          book.language
+        );
+        if (result) {
+          const audio = new Audio(URL.createObjectURL(result.blob));
+          geminiAudioRef.current = audio;
+          audio.onended = () => {
+            URL.revokeObjectURL(audio.src);
+            geminiAudioRef.current = null;
+            setIsPlaying(false);
+          };
+          audio.onerror = () => {
+            URL.revokeObjectURL(audio.src);
+            geminiAudioRef.current = null;
+            setIsPlaying(false);
+          };
+          await audio.play();
+          setIsPlaying(true);
+          return;
+        }
+      } catch (_) {
+        // fallback to Web Speech
+      } finally {
+        setIsLoadingVoice(false);
+      }
+    }
+
+    playWithWebSpeech();
+  }, [book, currentPage, voiceType, stopSpeech, playWithWebSpeech]);
 
   const togglePlay = () => isPlaying ? stopSpeech() : playSpeech();
 
@@ -96,7 +138,8 @@ export default function ReaderPage() {
           <h1 className="font-display text-sm font-semibold truncate text-foreground">{book.title}</h1>
           <p className="text-[10px] text-muted-foreground">{book.author}</p>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-1.5">
+          <ThemeToggle />
           <button onClick={() => toggleFavorite(book.id)} className="p-1.5 transition-colors">
             <Heart size={18} strokeWidth={1.5} className={isFavorite(book.id) ? 'fill-primary text-primary' : 'text-muted-foreground'} />
           </button>
@@ -199,9 +242,10 @@ export default function ReaderPage() {
             </button>
             <button
               onClick={togglePlay}
-              className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
+              disabled={isLoadingVoice}
+              className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95 disabled:opacity-70"
             >
-              {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
+              {isLoadingVoice ? <Loader2 size={20} className="animate-spin" /> : isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
             </button>
             <button onClick={() => goPage(1)} disabled={currentPage === book.totalPages - 1} className="p-1.5 text-muted-foreground disabled:opacity-30">
               <SkipForward size={18} strokeWidth={1.5} />

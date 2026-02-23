@@ -31,10 +31,16 @@ function guessGenre(subjects: string[] = [], title = '', description = ''): Genr
   return 'clássico';
 }
 
+// Open Library recomenda User-Agent + email para limite 3x maior (3 req/s)
+const OPENLIBRARY_USER_AGENT = 'Estante/1.0 (contact@example.org)';
+
 // Open Library API
 export async function searchOpenLibrary(query: string, limit = 12): Promise<ApiBook[]> {
   try {
-    const res = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${limit}&fields=key,title,author_name,cover_i,subject,first_publish_year,language,number_of_pages_median`);
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${limit}&fields=key,title,author_name,cover_i,subject,first_publish_year,language,number_of_pages_median`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': OPENLIBRARY_USER_AGENT },
+    });
     const data = await res.json();
     return (data.docs || []).map((doc: any) => ({
       id: `ol-${doc.key?.replace('/works/', '')}`,
@@ -91,6 +97,9 @@ export async function searchGutendex(query: string, limit = 12): Promise<ApiBook
     const data = await res.json();
     return (data.results || []).slice(0, limit).map((book: any) => {
       const author = book.authors?.[0];
+      const summary = book.summaries?.[0];
+      const descriptionFromSubjects = book.subjects?.slice(0, 3).join(', ');
+      const description = summary?.slice(0, 400) || descriptionFromSubjects || 'Livro clássico do Project Gutenberg';
       return {
         id: `gd-${book.id}`,
         title: book.title || 'Sem título',
@@ -98,7 +107,7 @@ export async function searchGutendex(query: string, limit = 12): Promise<ApiBook
         cover: book.formats?.['image/jpeg'] || null,
         genre: guessGenre(book.subjects, book.title),
         language: (book.languages || ['en'])[0] === 'pt' ? 'Português' : (book.languages || ['en'])[0] === 'es' ? 'Español' : 'English',
-        description: book.subjects?.slice(0, 3).join(', ') || 'Livro clássico do Project Gutenberg',
+        description,
         source: 'gutendex' as const,
         subjects: book.subjects?.slice(0, 5),
         pageCount: undefined,
@@ -146,6 +155,59 @@ export async function fetchFeaturedBooks(): Promise<ApiBook[]> {
     seen.add(key);
     return true;
   });
+}
+
+// Genre → search query for "top / most read" style lists
+const GENRE_SEARCH_QUERIES: Record<Genre, string> = {
+  suspense: 'thriller mystery detective',
+  terror: 'horror',
+  romance: 'romance',
+  ficção: 'science fiction',
+  aventura: 'adventure',
+  fantasia: 'fantasy',
+  religioso: 'religion spirituality',
+  clássico: 'classic literature',
+  poesia: 'poetry',
+  autoajuda: 'self help',
+};
+
+// Google Books: single request (max 40) to avoid CORS and rate limit (429)
+async function searchGoogleBooksForGenre(query: string, limit: number): Promise<ApiBook[]> {
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=${Math.min(limit, 40)}&printType=books&orderBy=relevance`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = data.items || [];
+    return items.map((item: any) => {
+      const v = item.volumeInfo || {};
+      return {
+        id: `gb-${item.id}`,
+        title: v.title || 'Sem título',
+        author: v.authors?.[0] || 'Autor desconhecido',
+        cover: v.imageLinks?.thumbnail?.replace('http:', 'https:') || null,
+        genre: guessGenre(v.categories, v.title, v.description),
+        language: v.language === 'pt' ? 'Português' : v.language === 'es' ? 'Español' : 'English',
+        description: v.description?.slice(0, 400) || `${v.pageCount || '?'} páginas.`,
+        source: 'google' as const,
+        previewLink: v.previewLink,
+        subjects: v.categories,
+        pageCount: v.pageCount,
+        publishYear: v.publishedDate ? parseInt(String(v.publishedDate).slice(0, 4)) : undefined,
+        textContent: v.description,
+      };
+    });
+  } catch (e) {
+    console.error('Google Books genre error:', e);
+    return [];
+  }
+}
+
+/** Top books per genre (covers + synopsis). Uses only Google Books to avoid CORS (Open Library blocks browser). Max 40 to avoid 429. */
+export async function fetchTopBooksByGenre(genre: Genre, limit = 40): Promise<ApiBook[]> {
+  const query = GENRE_SEARCH_QUERIES[genre];
+  return searchGoogleBooksForGenre(query, limit);
 }
 
 // Fetch book text content from Gutenberg

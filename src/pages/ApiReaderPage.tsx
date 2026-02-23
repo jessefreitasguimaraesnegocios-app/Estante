@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { VOICE_TYPES, type VoiceType } from '@/data/books';
 import { fetchBookText, type ApiBook } from '@/services/bookApi';
+import { generateGeminiSpeech, isGeminiTtsAvailable } from '@/services/geminiTts';
+import ThemeToggle from '@/components/ThemeToggle';
 import { useQuery } from '@tanstack/react-query';
 
 export default function ApiReaderPage() {
@@ -19,6 +21,8 @@ export default function ApiReaderPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [voiceType, setVoiceType] = useState<VoiceType>('masculina');
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
+  const [isLoadingVoice, setIsLoadingVoice] = useState(false);
+  const geminiAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Fetch text content if available (Gutenberg)
   const { data: pages = [], isLoading } = useQuery({
@@ -39,14 +43,17 @@ export default function ApiReaderPage() {
 
   const stopSpeech = useCallback(() => {
     window.speechSynthesis.cancel();
+    if (geminiAudioRef.current) {
+      geminiAudioRef.current.pause();
+      geminiAudioRef.current = null;
+    }
     setIsPlaying(false);
   }, []);
 
-  const playSpeech = useCallback(() => {
-    if (!pages[currentPage]) return;
-    stopSpeech();
+  const playWithWebSpeech = useCallback(() => {
+    if (!pages[currentPage] || !book) return;
     const utterance = new SpeechSynthesisUtterance(pages[currentPage]);
-    utterance.lang = book?.language === 'Português' ? 'pt-BR' : book?.language === 'Español' ? 'es-ES' : 'en-US';
+    utterance.lang = book.language === 'Português' ? 'pt-BR' : book.language === 'Español' ? 'es-ES' : 'en-US';
     utterance.rate = 0.9;
     if (voiceType === 'feminina') utterance.pitch = 1.3;
     else if (voiceType === 'infantil') { utterance.pitch = 1.8; utterance.rate = 1.05; }
@@ -54,7 +61,46 @@ export default function ApiReaderPage() {
     utterance.onend = () => setIsPlaying(false);
     window.speechSynthesis.speak(utterance);
     setIsPlaying(true);
-  }, [pages, currentPage, voiceType, stopSpeech, book]);
+  }, [pages, currentPage, voiceType, book]);
+
+  const playSpeech = useCallback(async () => {
+    if (!pages[currentPage] || !book) return;
+    stopSpeech();
+
+    if (isGeminiTtsAvailable()) {
+      setIsLoadingVoice(true);
+      try {
+        const result = await generateGeminiSpeech(
+          pages[currentPage],
+          voiceType,
+          book.language
+        );
+        if (result) {
+          const audio = new Audio(URL.createObjectURL(result.blob));
+          geminiAudioRef.current = audio;
+          audio.onended = () => {
+            URL.revokeObjectURL(audio.src);
+            geminiAudioRef.current = null;
+            setIsPlaying(false);
+          };
+          audio.onerror = () => {
+            URL.revokeObjectURL(audio.src);
+            geminiAudioRef.current = null;
+            setIsPlaying(false);
+          };
+          await audio.play();
+          setIsPlaying(true);
+          return;
+        }
+      } catch (_) {
+        // fallback to Web Speech
+      } finally {
+        setIsLoadingVoice(false);
+      }
+    }
+
+    playWithWebSpeech();
+  }, [pages, currentPage, voiceType, book, stopSpeech, playWithWebSpeech]);
 
   const togglePlay = () => isPlaying ? stopSpeech() : playSpeech();
   const goPage = (dir: number) => {
@@ -83,11 +129,14 @@ export default function ApiReaderPage() {
           <h1 className="font-display text-sm font-semibold truncate text-foreground">{book.title}</h1>
           <p className="text-[10px] text-muted-foreground">{book.author}</p>
         </div>
-        {book.previewLink && (
-          <a href={book.previewLink} target="_blank" rel="noopener noreferrer" className="p-1.5 text-muted-foreground hover:text-primary">
-            <ExternalLink size={16} strokeWidth={1.5} />
-          </a>
-        )}
+        <div className="flex items-center gap-1.5">
+          <ThemeToggle />
+          {book.previewLink && (
+            <a href={book.previewLink} target="_blank" rel="noopener noreferrer" className="p-1.5 text-muted-foreground hover:text-primary">
+              <ExternalLink size={16} strokeWidth={1.5} />
+            </a>
+          )}
+        </div>
       </header>
 
       {/* Book cover + info */}
@@ -149,7 +198,7 @@ export default function ApiReaderPage() {
                   {VOICE_TYPES.map(v => {
                     const VIcon = voiceIcons[v.value];
                     return (
-                      <button key={v.value} onClick={() => { setVoiceType(v.value); setShowVoiceSelector(false); }} className={`flex items-center gap-2 w-full px-3 py-1.5 rounded text-xs font-body transition-colors ${voiceType === v.value ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-secondary'}`}>
+                      <button key={v.value} onClick={() => { setVoiceType(v.value); setShowVoiceSelector(false); if (isPlaying) { stopSpeech(); setTimeout(playSpeech, 100); } }} className={`flex items-center gap-2 w-full px-3 py-1.5 rounded text-xs font-body transition-colors ${voiceType === v.value ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-secondary'}`}>
                         <VIcon size={14} />
                         {v.label}
                       </button>
@@ -164,8 +213,8 @@ export default function ApiReaderPage() {
             <button onClick={() => goPage(-1)} disabled={currentPage === 0} className="p-1.5 text-muted-foreground disabled:opacity-30">
               <SkipBack size={18} strokeWidth={1.5} />
             </button>
-            <button onClick={togglePlay} className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95">
-              {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
+            <button onClick={togglePlay} disabled={isLoadingVoice} className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95 disabled:opacity-70">
+              {isLoadingVoice ? <Loader2 size={20} className="animate-spin" /> : isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
             </button>
             <button onClick={() => goPage(1)} disabled={currentPage >= pages.length - 1} className="p-1.5 text-muted-foreground disabled:opacity-30">
               <SkipForward size={18} strokeWidth={1.5} />

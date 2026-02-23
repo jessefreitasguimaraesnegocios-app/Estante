@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Plus, Trash2, Lock, Calendar, Smile, Frown, Meh, Heart as HeartIcon } from 'lucide-react';
 import { useDiary } from '@/hooks/useBookData';
 import BottomNav from '@/components/BottomNav';
+import ThemeToggle from '@/components/ThemeToggle';
 
 const MOODS = [
   { value: '😊', icon: Smile, label: 'Feliz' },
@@ -39,12 +40,15 @@ export default function DiaryPage() {
               <Lock size={10} /> Seus segredos estão seguros
             </p>
           </div>
-          <button
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <button
             onClick={() => setIsWriting(true)}
             className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-md transition-transform hover:scale-105"
           >
             <Plus size={20} />
           </button>
+          </div>
         </div>
       </header>
 

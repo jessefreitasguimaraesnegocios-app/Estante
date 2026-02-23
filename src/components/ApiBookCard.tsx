@@ -8,9 +8,11 @@ const sourceColors = { openlibrary: 'bg-blue-500/10 text-blue-700', google: 'bg-
 interface ApiBookCardProps {
   book: ApiBook;
   index?: number;
+  /** Show synopsis/description below author (e.g. for Top 100 lists) */
+  showSynopsis?: boolean;
 }
 
-export default function ApiBookCard({ book, index = 0 }: ApiBookCardProps) {
+export default function ApiBookCard({ book, index = 0, showSynopsis = false }: ApiBookCardProps) {
   const navigate = useNavigate();
 
   return (
@@ -59,6 +61,11 @@ export default function ApiBookCard({ book, index = 0 }: ApiBookCardProps) {
           </p>
           {book.publishYear && (
             <p className="text-[8px] text-muted-foreground font-body mt-0.5">{book.publishYear}</p>
+          )}
+          {showSynopsis && book.description && (
+            <p className="font-body text-[10px] text-muted-foreground mt-1.5 line-clamp-3 leading-snug">
+              {book.description}
+            </p>
           )}
         </div>
       </div>

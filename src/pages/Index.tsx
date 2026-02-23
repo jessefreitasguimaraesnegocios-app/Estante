@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, BookOpen, Loader2, Globe } from 'lucide-react';
 import { SAMPLE_BOOKS, GENRES, BIBLE_LANGUAGES, type Genre } from '@/data/books';
-import { searchAllBooks, fetchFeaturedBooks, type ApiBook } from '@/services/bookApi';
+import { searchAllBooks, fetchFeaturedBooks, fetchTopBooksByGenre, type ApiBook } from '@/services/bookApi';
 import { useFavorites } from '@/hooks/useBookData';
 import BookCard from '@/components/BookCard';
 import ApiBookCard from '@/components/ApiBookCard';
 import BottomNav from '@/components/BottomNav';
+import ThemeToggle from '@/components/ThemeToggle';
 
 export default function LibraryPage() {
   const [selectedGenre, setSelectedGenre] = useState<Genre | 'all' | 'bible' | 'online'>('all');
@@ -27,6 +28,16 @@ export default function LibraryPage() {
     enabled: searchQuery.length > 1,
     staleTime: 1000 * 60 * 5,
   });
+
+  const isGenreSelected = selectedGenre !== 'all' && selectedGenre !== 'online' && selectedGenre !== 'bible';
+  const { data: topBooksByGenre = [], isLoading: loadingTopByGenre } = useQuery({
+    queryKey: ['top-books-by-genre', selectedGenre],
+    queryFn: () => fetchTopBooksByGenre(selectedGenre as Genre, 100),
+    enabled: isGenreSelected,
+    staleTime: 1000 * 60 * 15,
+  });
+
+  const genreLabel = isGenreSelected ? GENRES.find(g => g.value === selectedGenre)?.label ?? selectedGenre : '';
 
   const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -50,9 +61,12 @@ export default function LibraryPage() {
     <div className="min-h-screen bg-background pb-20">
       {/* Header */}
       <header className="px-5 pt-12 pb-2">
-        <div className="flex items-center gap-2 mb-1">
-          <BookOpen size={22} className="text-primary" strokeWidth={1.5} />
-          <h1 className="font-display text-2xl font-bold text-foreground">Biblioteca</h1>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-2">
+            <BookOpen size={22} className="text-primary" strokeWidth={1.5} />
+            <h1 className="font-display text-2xl font-bold text-foreground">Estante</h1>
+          </div>
+          <ThemeToggle />
         </div>
         <p className="text-xs text-muted-foreground font-body">
           Leitura com voz · 3 APIs integradas
@@ -159,15 +173,44 @@ export default function LibraryPage() {
         </div>
       )}
 
+      {/* Top 100 mais lidos por gênero (capas + sinopse) */}
+      {isGenreSelected && (
+        <div className="px-5 mb-6">
+          <h2 className="font-display text-base font-semibold text-foreground mb-1">
+            Top 100 mais lidos em {genreLabel}
+          </h2>
+          <p className="text-xs text-muted-foreground font-body mb-3">
+            Capas e sinopses · Google Books
+          </p>
+          {loadingTopByGenre ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={24} className="text-primary animate-spin" />
+              <span className="ml-2 text-sm text-muted-foreground font-body">Carregando...</span>
+            </div>
+          ) : topBooksByGenre.length === 0 ? (
+            <p className="text-muted-foreground font-body text-sm py-6">Nenhum livro encontrado para este gênero.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {topBooksByGenre.map((book, i) => (
+                <ApiBookCard key={book.id} book={book} index={i} showSynopsis />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Local book grid */}
       {selectedGenre !== 'online' && (
         <div className="px-5">
+          {isGenreSelected && localBooks.length > 0 && (
+            <h2 className="font-display text-sm font-semibold text-foreground mb-2">Livros da biblioteca local</h2>
+          )}
           <div className="grid grid-cols-3 gap-3">
             {localBooks.map((book, i) => (
               <BookCard key={book.id} book={book} isFavorite={isFavorite(book.id)} onToggleFavorite={toggleFavorite} index={i} />
             ))}
           </div>
-          {localBooks.length === 0 && (
+          {localBooks.length === 0 && !isGenreSelected && (
             <div className="text-center py-12">
               <p className="text-muted-foreground font-body text-sm">Nenhum livro encontrado</p>
             </div>

@@ -1,9 +1,10 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { BookOpen, Heart, PenLine, Home } from 'lucide-react';
+import ThemeToggle from '@/components/ThemeToggle';
 
 const NAV_ITEMS = [
-  { path: '/', label: 'Biblioteca', icon: Home },
+  { path: '/', label: 'Estante', icon: Home },
   { path: '/favorites', label: 'Favoritos', icon: Heart },
   { path: '/diary', label: 'Diário', icon: PenLine },
 ];
@@ -40,6 +41,10 @@ export default function BottomNav() {
             </Link>
           );
         })}
+        <div className="flex flex-col items-center gap-0.5 px-4 py-1.5">
+          <ThemeToggle />
+          <span className="text-[10px] font-body text-muted-foreground">Tema</span>
+        </div>
       </div>
     </nav>
   );
