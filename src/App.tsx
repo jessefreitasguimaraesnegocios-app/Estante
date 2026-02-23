@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import ReaderPage from "./pages/ReaderPage";
+import ApiReaderPage from "./pages/ApiReaderPage";
 import FavoritesPage from "./pages/FavoritesPage";
 import DiaryPage from "./pages/DiaryPage";
 import NotFound from "./pages/NotFound";
@@ -20,6 +21,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/reader/:bookId" element={<ReaderPage />} />
+          <Route path="/api-reader/:bookId" element={<ApiReaderPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/diary" element={<DiaryPage />} />
           <Route path="*" element={<NotFound />} />
