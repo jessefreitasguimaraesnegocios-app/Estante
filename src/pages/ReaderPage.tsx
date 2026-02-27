@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { SAMPLE_BOOKS, VOICE_TYPES, type VoiceType } from '@/data/books';
 import { useFavorites, useBookmarks, useAnnotations, useReadingProgress } from '@/hooks/useBookData';
-import { generateGeminiSpeech, isGeminiTtsAvailable } from '@/services/geminiTts';
+import { generateElevenLabsSpeech, isElevenLabsAvailable } from '@/services/elevenLabsTts';
 import ThemeToggle from '@/components/ThemeToggle';
 
 export default function ReaderPage() {
@@ -69,13 +69,13 @@ export default function ReaderPage() {
     if (!book) return;
     stopSpeech();
 
-    if (isGeminiTtsAvailable()) {
+    if (isElevenLabsAvailable()) {
       setIsLoadingVoice(true);
       try {
-        const result = await generateGeminiSpeech(
+        const result = await generateElevenLabsSpeech(
           book.content[currentPage],
           voiceType,
-          book.language
+          book.genre
         );
         if (result) {
           const audio = new Audio(URL.createObjectURL(result.blob));
