@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { Heart } from 'lucide-react';
 import type { ApiBook } from '@/services/bookApi';
+import { useApiFavorites } from '@/hooks/useBookData';
 
 const sourceLabels = { openlibrary: 'Open Library', google: 'Google Books', gutendex: 'Gutenberg' };
 const sourceColors = { openlibrary: 'bg-blue-500/10 text-blue-700', google: 'bg-red-500/10 text-red-700', gutendex: 'bg-emerald-500/10 text-emerald-700' };
@@ -8,12 +10,13 @@ const sourceColors = { openlibrary: 'bg-blue-500/10 text-blue-700', google: 'bg-
 interface ApiBookCardProps {
   book: ApiBook;
   index?: number;
-  /** Show synopsis/description below author (e.g. for Top 100 lists) */
   showSynopsis?: boolean;
 }
 
 export default function ApiBookCard({ book, index = 0, showSynopsis = false }: ApiBookCardProps) {
   const navigate = useNavigate();
+  const { toggleApiFavorite, isApiFavorite } = useApiFavorites();
+  const fav = isApiFavorite(book.id);
 
   return (
     <motion.div
@@ -44,6 +47,19 @@ export default function ApiBookCard({ book, index = 0, showSynopsis = false }: A
           <span className={`absolute top-1.5 left-1.5 text-[8px] font-body font-semibold px-1.5 py-0.5 rounded-sm ${sourceColors[book.source]}`}>
             {sourceLabels[book.source]}
           </span>
+
+          {/* Favorite button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleApiFavorite(book); }}
+            className="absolute top-1.5 right-1.5 p-1 rounded-full bg-background/70 backdrop-blur-sm transition-transform hover:scale-110 active:scale-95"
+            aria-label={fav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+          >
+            <Heart
+              size={12}
+              strokeWidth={1.5}
+              className={fav ? 'fill-red-500 text-red-500' : 'text-muted-foreground'}
+            />
+          </button>
 
           {/* Language badge */}
           <span className="absolute bottom-1.5 left-1.5 text-[8px] font-body font-medium bg-background/70 backdrop-blur-sm px-1.5 py-0.5 rounded-sm text-foreground border-ultra-thin border-border">

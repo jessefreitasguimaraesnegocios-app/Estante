@@ -1,5 +1,29 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { Bookmark, Annotation, DiaryEntry, ReadingProgress } from '@/data/books';
+import type { ApiBook } from '@/services/bookApi';
+
+// ── Api Favorites (livros online) ──────────────────────────────────────────────
+export function useApiFavorites() {
+  const [apiFavorites, setApiFavorites] = useState<ApiBook[]>(() => {
+    try {
+      const item = localStorage.getItem('api-favorites');
+      return item ? JSON.parse(item) : [];
+    } catch { return []; }
+  });
+
+  const toggleApiFavorite = useCallback((book: ApiBook) => {
+    setApiFavorites(prev => {
+      const exists = prev.find(b => b.id === book.id);
+      const next = exists ? prev.filter(b => b.id !== book.id) : [...prev, book];
+      localStorage.setItem('api-favorites', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const isApiFavorite = useCallback((id: string) => apiFavorites.some(b => b.id === id), [apiFavorites]);
+
+  return { apiFavorites, toggleApiFavorite, isApiFavorite };
+}
 
 function getStorage<T>(key: string, fallback: T): T {
   try {

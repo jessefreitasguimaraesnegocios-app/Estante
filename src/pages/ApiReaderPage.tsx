@@ -1,14 +1,15 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Play, Pause, SkipBack, SkipForward,
   Volume2, ChevronLeft, ChevronRight, Loader2,
-  Mic, User, Baby, ExternalLink
+  Mic, User, Baby, ExternalLink, Heart, BookOpen
 } from 'lucide-react';
 import { VOICE_TYPES, type VoiceType } from '@/data/books';
-import { fetchBookText, type ApiBook } from '@/services/bookApi';
+import { fetchBookText, searchGutendex, type ApiBook } from '@/services/bookApi';
 import { generateElevenLabsSpeech, isElevenLabsAvailable } from '@/services/elevenLabsTts';
+import { useApiFavorites } from '@/hooks/useBookData';
 import ThemeToggle from '@/components/ThemeToggle';
 import { useQuery } from '@tanstack/react-query';
 
@@ -16,6 +17,7 @@ export default function ApiReaderPage() {
   const { state } = useLocation();
   const navigate = useNavigate();
   const book = state?.book as ApiBook | undefined;
+  const { toggleApiFavorite, isApiFavorite } = useApiFavorites();
 
   const [currentPage, setCurrentPage] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -24,22 +26,47 @@ export default function ApiReaderPage() {
   const [isLoadingVoice, setIsLoadingVoice] = useState(false);
   const geminiAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Fetch text content if available (Gutenberg)
+  // Try to fetch full text:
+  // 1. If Gutenberg → use textContent URL directly
+  // 2. If Google/OpenLibrary → try to find the book on Gutendex by title+author
+  // 3. Fallback to description only
   const { data: pages = [], isLoading } = useQuery({
     queryKey: ['book-text', book?.id],
-    queryFn: () => {
-      if (book?.textContent && book.source === 'gutendex') {
+    queryFn: async () => {
+      if (!book) return ['Livro não encontrado.'];
+
+      // Direct Gutenberg text
+      if (book.source === 'gutendex' && book.textContent) {
         return fetchBookText(book.textContent);
       }
-      // For Google/OpenLibrary, use description as single page
-      return Promise.resolve([
-        book?.description || 'Conteúdo não disponível.',
-        'Este livro está disponível para leitura completa nas plataformas originais. Use o link externo para acessar o texto completo.',
-      ]);
+
+      // Try to find on Gutendex by title (for Google/OpenLibrary books)
+      if (book.source !== 'gutendex') {
+        try {
+          const results = await searchGutendex(book.title, 3);
+          const match = results.find(r =>
+            r.textContent &&
+            r.title.toLowerCase().includes(book.title.toLowerCase().slice(0, 15))
+          );
+          if (match?.textContent) {
+            return fetchBookText(match.textContent);
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Fallback: show description + message
+      const descPage = book.description || 'Sem sinopse disponível.';
+      const noTextPage =
+        '📚 Texto completo não disponível para leitura direta.\n\n' +
+        'Este livro está disponível nas plataformas originais. ' +
+        (book.previewLink ? 'Use o ícone de link externo (↗) no topo para acessar a prévia.' : 'Pesquise o título no Google para encontrar o texto completo.');
+      return [descPage, noTextPage];
     },
     enabled: !!book,
     staleTime: Infinity,
   });
+
+  const hasFullText = pages.length > 2 || (pages.length > 0 && !pages[0]?.startsWith('📚'));
 
   const stopSpeech = useCallback(() => {
     window.speechSynthesis.cancel();
@@ -117,6 +144,7 @@ export default function ApiReaderPage() {
   }
 
   const voiceIcons = { masculina: User, feminina: Mic, infantil: Baby };
+  const fav = isApiFavorite(book.id);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -130,6 +158,13 @@ export default function ApiReaderPage() {
           <p className="text-[10px] text-muted-foreground">{book.author}</p>
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => toggleApiFavorite(book)}
+            className="p-1.5 transition-transform hover:scale-110 active:scale-95"
+            aria-label={fav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+          >
+            <Heart size={18} strokeWidth={1.5} className={fav ? 'fill-red-500 text-red-500' : 'text-muted-foreground'} />
+          </button>
           <ThemeToggle />
           {book.previewLink && (
             <a href={book.previewLink} target="_blank" rel="noopener noreferrer" className="p-1.5 text-muted-foreground hover:text-primary">
@@ -145,13 +180,20 @@ export default function ApiReaderPage() {
           {book.cover && (
             <img src={book.cover} alt={book.title} className="w-20 h-28 object-cover rounded-md shadow-md flex-shrink-0" />
           )}
-          <div>
+          <div className="flex-1">
             <h2 className="font-display text-lg font-bold text-foreground">{book.title}</h2>
             <p className="text-xs text-muted-foreground font-body">{book.author}</p>
             {book.publishYear && <p className="text-[10px] text-muted-foreground font-body mt-0.5">Publicado em {book.publishYear}</p>}
             <span className="inline-block mt-1.5 text-[9px] font-body font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border-ultra-thin border-primary/20">
               {book.source === 'openlibrary' ? 'Open Library' : book.source === 'google' ? 'Google Books' : 'Project Gutenberg'}
             </span>
+            {/* Text availability badge */}
+            {!isLoading && (
+              <div className={`inline-flex items-center gap-1 ml-2 mt-1.5 text-[9px] font-body font-medium px-2 py-0.5 rounded-full border-ultra-thin ${hasFullText ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : 'bg-amber-500/10 text-amber-700 border-amber-500/20'}`}>
+                <BookOpen size={8} />
+                {hasFullText ? 'Texto completo' : 'Sinopse apenas'}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -159,9 +201,10 @@ export default function ApiReaderPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-4 max-w-2xl mx-auto w-full">
         {isLoading ? (
-          <div className="flex items-center justify-center py-16">
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Loader2 size={24} className="text-primary animate-spin" />
-            <span className="ml-2 text-sm text-muted-foreground font-body">Carregando texto...</span>
+            <span className="text-sm text-muted-foreground font-body">Buscando texto completo...</span>
+            <span className="text-xs text-muted-foreground font-body">Procurando no Project Gutenberg</span>
           </div>
         ) : (
           <AnimatePresence mode="wait">
@@ -213,7 +256,7 @@ export default function ApiReaderPage() {
             <button onClick={() => goPage(-1)} disabled={currentPage === 0} className="p-1.5 text-muted-foreground disabled:opacity-30">
               <SkipBack size={18} strokeWidth={1.5} />
             </button>
-            <button onClick={togglePlay} disabled={isLoadingVoice} className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95 disabled:opacity-70">
+            <button onClick={togglePlay} disabled={isLoadingVoice || isLoading} className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95 disabled:opacity-70">
               {isLoadingVoice ? <Loader2 size={20} className="animate-spin" /> : isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
             </button>
             <button onClick={() => goPage(1)} disabled={currentPage >= pages.length - 1} className="p-1.5 text-muted-foreground disabled:opacity-30">
